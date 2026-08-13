@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin - Viento Norte</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--navy:#2c3e50;--green:#7fb98a;--red:#c0392b;--bg:#f2f0ea;}
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,Arial,sans-serif;margin:0;background:var(--bg);color:#2c3e50;}
+  header{background:var(--navy);color:#fff;padding:18px 20px;font-size:20px;font-weight:bold;}
+  .wrap{max-width:900px;margin:0 auto;padding:16px;}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .tab{padding:10px 16px;background:#fff;border:1px solid #ddd;border-radius:8px;cursor:pointer;font-weight:600;}
+  .tab.active{background:var(--navy);color:#fff;}
+  .card{background:#fff;border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .grid4{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .stat{background:#fff;border-radius:10px;padding:14px;text-align:left;}
+  .stat b{font-size:22px;display:block;}
+  .stat span{color:#777;font-size:13px;}
+  input,select,textarea{width:100%;padding:10px;margin:6px 0;border:1px solid #ccc;border-radius:6px;font-size:15px;}
+  button{background:var(--navy);color:#fff;border:none;padding:10px 16px;border-radius:8px;font-weight:600;cursor:pointer;}
+  button.secondary{background:#fff;color:var(--navy);border:1px solid var(--navy);}
+  button.danger{background:var(--red);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:6px;border-bottom:1px solid #eee;text-align:center;}
+  th{background:#f7f6f2;}
+  .ok{color:var(--green);font-weight:bold;}
+  .no{color:var(--red);font-weight:bold;cursor:pointer;}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .pill{background:#eef;padding:2px 8px;border-radius:10px;font-size:12px;}
+  .hidden{display:none;}
+  a.link{color:var(--navy);}
+</style>
+</head>
+<body>
+<header>🏘️ Viento Norte - Panel Tesorero</header>
+<div class="wrap">
+
+  <div class="tabs">
+    <div class="tab active" data-tab="dash">Dashboard</div>
+    <div class="tab" data-tab="pagos">Pagos</div>
+    <div class="tab" data-tab="gastos">Gastos</div>
+    <div class="tab" data-tab="extra">Ingresos Extra</div>
+    <div class="tab" data-tab="parcelas">Parcelas</div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dash">
+    <div class="grid4">
+      <div class="stat"><b id="s-parcelas">-</b><span>Parcelas</span></div>
+      <div class="stat"><b id="s-balance">-</b><span>Balance Total</span></div>
+      <div class="stat"><b id="s-ingresos">-</b><span>Ingresos (cuota)</span></div>
+      <div class="stat"><b id="s-gastos">-</b><span>Gastos</span></div>
+    </div>
+    <div class="card">
+      <b>Link público del reporte</b> (envíaselo a los vecinos):<br>
+      <a class="link" id="link-publico" href="#" target="_blank"></a>
+    </div>
+  </div>
+
+  <!-- PAGOS -->
+  <div id="pagos" class="hidden">
+    <div class="card">
+      <div class="row">
+        <select id="pagos-mes"></select>
+        <select id="pagos-anio"></select>
+      </div>
+      <table id="tabla-pagos"></table>
+    </div>
+  </div>
+
+  <!-- GASTOS -->
+  <div id="gastos" class="hidden">
+    <div class="card">
+      <b>Registrar gasto</b>
+      <input id="g-desc" placeholder="Descripción (ej: Corte de pasto)">
+      <input id="g-cat" placeholder="Categoría (ej: Mantención)">
+      <input id="g-monto" type="number" placeholder="Monto">
+      <input id="g-fecha" type="date">
+      <input id="g-prov" placeholder="Proveedor">
+      <input id="g-doc" placeholder="N° boleta/factura">
+      <input id="g-archivo" type="file" accept="image/*,application/pdf">
+      <button onclick="guardarGasto()">Guardar Gasto</button>
+    </div>
+    <div id="lista-gastos"></div>
+  </div>
+
+  <!-- INGRESOS EXTRA -->
+  <div id="extra" class="hidden">
+    <div class="card">
+      <b>Registrar ingreso extra</b>
+      <input id="e-desc" placeholder="Descripción">
+      <input id="e-monto" type="number" placeholder="Monto">
+      <input id="e-fecha" type="date">
+      <input id="e-origen" placeholder="Origen">
+      <input id="e-archivo" type="file" accept="image/*,application/pdf">
+      <button onclick="guardarExtra()">Guardar Ingreso</button>
+    </div>
+    <div id="lista-extra"></div>
+  </div>
+
+  <!-- PARCELAS -->
+  <div id="parcelas" class="hidden">
+    <div class="card">
+      <b>Agregar parcela</b>
+      <input id="p-nombre" placeholder="Nombre (ej: Parcela 38)">
+      <input id="p-resp" placeholder="Responsable (privado)">
+      <input id="p-rut" placeholder="RUT (privado)">
+      <input id="p-contacto" placeholder="Contacto (privado)">
+      <button onclick="guardarParcela()">Agregar</button>
+    </div>
+    <div id="lista-parcelas"></div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://lhmyoayjwltklxvdxdzn.supabase.co";
+const SUPABASE_KEY = "sb_publishable_duNAiIbyGBOECNnK67399g_JxC_78MF";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const CODIGO = "VIENTONORTE-2026";
+let condominio, parcelas = [];
+
+const meses = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+document.querySelectorAll(".tab").forEach(t=>{
+  t.onclick = ()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll(".wrap > div[id]").forEach(x=>x.classList.add("hidden"));
+    t.classList.add("active");
+    document.getElementById(t.dataset.tab).classList.remove("hidden");
+  };
+});
+
+async function init(){
+  const { data: c } = await sb.from("condominio").select("*").eq("codigo", CODIGO).single();
+  condominio = c;
+  document.getElementById("link-publico").href = `reporte.html?code=${CODIGO}`;
+  document.getElementById("link-publico").textContent = `reporte.html?code=${CODIGO}`;
+
+  const { data: p } = await sb.from("parcelas").select("*").eq("condominio_id", condominio.id).order("numero");
+  parcelas = p;
+
+  document.getElementById("s-parcelas").textContent = parcelas.length;
+
+  // selects de mes/año
+  const mesSel = document.getElementById("pagos-mes");
+  meses.forEach((m,i)=> mesSel.innerHTML += `<option value="${i+1}">${m}</option>`);
+  mesSel.value = new Date().getMonth()+1;
+  const anioSel = document.getElementById("pagos-anio");
+  [2025,2026,2027].forEach(a=> anioSel.innerHTML += `<option value="${a}">${a}</option>`);
+  anioSel.value = condominio.anio;
+  mesSel.onchange = renderPagos;
+  anioSel.onchange = renderPagos;
+
+  await renderPagos();
+  await renderDashboard();
+  await renderGastos();
+  await renderExtra();
+  renderParcelas();
+}
+
+async function renderDashboard(){
+  const { data: gastos } = await sb.from("gastos").select("monto").eq("condominio_id", condominio.id);
+  const { data: pagosOk } = await sb.from("pagos").select("monto,pagado").in("parcela_id", parcelas.map(p=>p.id)).eq("pagado", true);
+  const { data: extras } = await sb.from("ingresos_extra").select("monto").eq("condominio_id", condominio.id);
+
+  const totalGastos = (gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const totalPagos = (pagosOk||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const totalExtra = (extras||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const balance = totalPagos + totalExtra - totalGastos;
+
+  document.getElementById("s-balance").textContent = "$"+balance.toLocaleString("es-CL");
+  document.getElementById("s-ingresos").textContent = "$"+totalPagos.toLocaleString("es-CL");
+  document.getElementById("s-gastos").textContent = "$"+totalGastos.toLocaleString("es-CL");
+}
+
+async function renderPagos(){
+  const mes = Number(document.getElementById("pagos-mes").value);
+  const anio = Number(document.getElementById("pagos-anio").value);
+  const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes);
+
+  let html = "<tr><th>#</th><th>Parcela</th><th>Estado</th><th>Monto</th></tr>";
+  for(const p of parcelas){
+    const pago = (pagos||[]).find(x=>x.parcela_id===p.id);
+    const pagado = pago?.pagado;
+    html += `<tr>
+      <td>${p.numero}</td>
+      <td>${p.nombre}</td>
+      <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${pagado?'✓ Pagado':'✗ Pendiente'}</td>
+      <td>$${Number(condominio.cuota_mensual).toLocaleString("es-CL")}</td>
+    </tr>`;
+  }
+  document.getElementById("tabla-pagos").innerHTML = html;
+}
+
+async function togglePago(parcela_id, anio, mes, nuevoEstado){
+  await sb.from("pagos").upsert({
+    parcela_id, anio, mes,
+    monto: condominio.cuota_mensual,
+    pagado: nuevoEstado,
+    fecha_pago: nuevoEstado ? new Date().toISOString().slice(0,10) : null
+  }, { onConflict: "parcela_id,anio,mes" });
+  await renderPagos();
+  await renderDashboard();
+}
+
+async function subirArchivo(file){
+  if(!file) return null;
+  const nombre = Date.now()+"_"+file.name.replace(/\s+/g,"_");
+  const { error } = await sb.storage.from("comprobantes").upload(nombre, file);
+  if(error){ alert("Error subiendo archivo: "+error.message); return null; }
+  const { data } = sb.storage.from("comprobantes").getPublicUrl(nombre);
+  return data.publicUrl;
+}
+
+async function guardarGasto(){
+  const archivo = document.getElementById("g-archivo").files[0];
+  const archivo_url = await subirArchivo(archivo);
+  const { error } = await sb.from("gastos").insert({
+    condominio_id: condominio.id,
+    descripcion: document.getElementById("g-desc").value,
+    categoria: document.getElementById("g-cat").value,
+    monto: Number(document.getElementById("g-monto").value),
+    fecha: document.getElementById("g-fecha").value || new Date().toISOString().slice(0,10),
+    proveedor: document.getElementById("g-prov").value,
+    numero_doc: document.getElementById("g-doc").value,
+    archivo_url
+  });
+  if(error){ alert("Error: "+error.message); return; }
+  ["g-desc","g-cat","g-monto","g-fecha","g-prov","g-doc"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("g-archivo").value = "";
+  await renderGastos();
+  await renderDashboard();
+}
+
+async function renderGastos(){
+  const { data } = await sb.from("gastos").select("*").eq("condominio_id", condominio.id).order("fecha",{ascending:false});
+  document.getElementById("lista-gastos").innerHTML = (data||[]).map(g=>`
+    <div class="card">
+      <div class="row"><b>${g.descripcion}</b><span style="color:var(--red)">-$${Number(g.monto).toLocaleString("es-CL")}</span></div>
+      <span class="pill">${g.categoria||''}</span> ${g.fecha} • ${g.proveedor||''} ${g.numero_doc?'• N°'+g.numero_doc:''}
+      ${g.archivo_url?`<br><a class="link" href="${g.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+    </div>`).join("");
+}
+
+async function guardarExtra(){
+  const archivo = document.getElementById("e-archivo").files[0];
+  const archivo_url = await subirArchivo(archivo);
+  const { error } = await sb.from("ingresos_extra").insert({
+    condominio_id: condominio.id,
+    descripcion: document.getElementById("e-desc").value,
+    monto: Number(document.getElementById("e-monto").value),
+    fecha: document.getElementById("e-fecha").value || new Date().toISOString().slice(0,10),
+    origen: document.getElementById("e-origen").value,
+    archivo_url
+  });
+  if(error){ alert("Error: "+error.message); return; }
+  ["e-desc","e-monto","e-fecha","e-origen"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("e-archivo").value = "";
+  await renderExtra();
+  await renderDashboard();
+}
+
+async function renderExtra(){
+  const { data } = await sb.from("ingresos_extra").select("*").eq("condominio_id", condominio.id).order("fecha",{ascending:false});
+  document.getElementById("lista-extra").innerHTML = (data||[]).map(e=>`
+    <div class="card">
+      <div class="row"><b>${e.descripcion}</b><span style="color:var(--green)">+$${Number(e.monto).toLocaleString("es-CL")}</span></div>
+      ${e.fecha} • Origen: ${e.origen||''}
+      ${e.archivo_url?`<br><a class="link" href="${e.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+    </div>`).join("");
+}
+
+function renderParcelas(){
+  document.getElementById("lista-parcelas").innerHTML = parcelas.map(p=>`
+    <div class="card row">
+      <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} ${p.contacto?'• '+p.contacto:''}</small></div>
+    </div>`).join("");
+}
+
+async function guardarParcela(){
+  const nombre = document.getElementById("p-nombre").value;
+  if(!nombre) return alert("Ponle un nombre");
+  const numero = Math.max(0,...parcelas.map(p=>p.numero)) + 1;
+  const { error } = await sb.from("parcelas").insert({
+    condominio_id: condominio.id, numero, nombre,
+    responsable: document.getElementById("p-resp").value,
+    rut: document.getElementById("p-rut").value,
+    contacto: document.getElementById("p-contacto").value
+  });
+  if(error){ alert("Error: "+error.message); return; }
+  location.reload();
+}
+
+init();
+</script>
+</body>
+</html>
