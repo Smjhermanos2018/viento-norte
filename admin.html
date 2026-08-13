@@ -163,7 +163,7 @@ async function renderDashboard(){
   const totalGastos = (gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
   const totalPagos = (pagosOk||[]).reduce((a,b)=>a+Number(b.monto),0);
   const totalExtra = (extras||[]).reduce((a,b)=>a+Number(b.monto),0);
-  const balance = totalPagos + totalExtra - totalGastos;
+  const balance = Number(condominio.saldo_inicial||0) + totalPagos + totalExtra - totalGastos;
 
   document.getElementById("s-balance").textContent = "$"+balance.toLocaleString("es-CL");
   document.getElementById("s-ingresos").textContent = "$"+totalPagos.toLocaleString("es-CL");

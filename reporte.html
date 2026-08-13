@@ -102,7 +102,7 @@ async function init(){
   const totalExtra = (extras||[]).reduce((a,b)=>a+Number(b.monto),0);
   const pagosOk = (pagos||[]).filter(p=>p.pagado);
   const totalPagado = pagosOk.reduce((a,b)=>a+Number(b.monto),0);
-  const balance = totalPagado + totalExtra - totalGastos;
+  const balance = Number(c.saldo_inicial||0) + totalPagado + totalExtra - totalGastos;
 
   document.getElementById("s-balance").textContent = "$"+balance.toLocaleString("es-CL");
   document.getElementById("s-ingresos").textContent = "$"+totalPagado.toLocaleString("es-CL");
