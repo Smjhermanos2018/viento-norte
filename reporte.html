@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte - Viento Norte</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--navy:#2c3e50;--green:#7fb98a;--red:#c0392b;--bg:#f2f0ea;}
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,Arial,sans-serif;margin:0;background:var(--bg);color:#2c3e50;}
+  header{background:var(--navy);color:#fff;padding:20px;text-align:center;}
+  header h1{margin:4px 0;font-size:20px;}
+  .wrap{max-width:800px;margin:0 auto;padding:16px;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;}
+  .stat{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .stat b{font-size:20px;display:block;}
+  .stat span{color:#777;font-size:12px;}
+  .card{background:#fff;border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .bar-bg{background:#eee;border-radius:6px;height:10px;overflow:hidden;margin:6px 0;}
+  .bar-fill{background:var(--green);height:100%;}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;}
+  th,td{padding:5px;border-bottom:1px solid #eee;text-align:center;}
+  th{background:#f7f6f2;position:sticky;top:0;}
+  .scrolltab{overflow-x:auto;}
+  .ok{color:var(--green);font-weight:bold;}
+  .no{color:var(--red);font-weight:bold;}
+  .gasto-row{border-bottom:1px solid #eee;padding:10px 0;}
+  .gasto-row b{display:block;}
+  .monto-neg{color:var(--red);font-weight:bold;}
+  .monto-pos{color:var(--green);font-weight:bold;}
+  a.link{color:var(--navy);}
+  footer{text-align:center;padding:20px;color:#999;font-size:12px;}
+</style>
+</head>
+<body>
+<header>
+  <div id="titulo">Cargando...</div>
+</header>
+<div class="wrap">
+
+  <div class="grid">
+    <div class="stat"><b id="s-parcelas">-</b><span>Parcelas</span></div>
+    <div class="stat"><b id="s-balance">-</b><span>Balance Total</span></div>
+    <div class="stat"><b id="s-ingresos">-</b><span>Ingresos Cuota</span></div>
+    <div class="stat"><b id="s-gastos">-</b><span>Total Gastos</span></div>
+  </div>
+
+  <div class="card">
+    <b>Cumplimiento del mes actual</b>
+    <div class="bar-bg"><div class="bar-fill" id="bar-mes" style="width:0%"></div></div>
+    <div id="txt-mes"></div>
+  </div>
+
+  <div class="card">
+    <b>Recaudación anual</b>
+    <div class="bar-bg"><div class="bar-fill" id="bar-anio" style="width:0%"></div></div>
+    <div id="txt-anio"></div>
+  </div>
+
+  <div class="card">
+    <b>Resumen anual de pagos (✓ pagado / ✗ pendiente)</b>
+    <div class="scrolltab"><table id="tabla-anual"></table></div>
+  </div>
+
+  <div class="card">
+    <b>Gastos</b>
+    <div id="lista-gastos"></div>
+  </div>
+
+  <div class="card">
+    <b>Ingresos Extra</b>
+    <div id="lista-extra"></div>
+  </div>
+
+</div>
+<footer>Reporte generado automáticamente • Tesorería Condominio Viento Norte</footer>
+
+<script>
+const SUPABASE_URL = "https://lhmyoayjwltklxvdxdzn.supabase.co";
+const SUPABASE_KEY = "sb_publishable_duNAiIbyGBOECNnK67399g_JxC_78MF";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const meses = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+const params = new URLSearchParams(location.search);
+const codigo = params.get("code") || "VIENTONORTE-2026";
+
+async function init(){
+  const { data: c } = await sb.from("condominio").select("*").eq("codigo", codigo).single();
+  if(!c){ document.getElementById("titulo").textContent = "Condominio no encontrado"; return; }
+
+  document.getElementById("titulo").innerHTML = `<h1>${c.nombre}</h1>Año ${c.anio} • Cuota mensual $${Number(c.cuota_mensual).toLocaleString("es-CL")}`;
+
+  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre").eq("condominio_id", c.id).order("numero");
+  document.getElementById("s-parcelas").textContent = parcelas.length;
+
+  const { data: pagos } = await sb.from("pagos").select("*").in("parcela_id", parcelas.map(p=>p.id)).eq("anio", c.anio);
+  const { data: gastos } = await sb.from("gastos").select("*").eq("condominio_id", c.id).order("fecha",{ascending:false});
+  const { data: extras } = await sb.from("ingresos_extra").select("*").eq("condominio_id", c.id).order("fecha",{ascending:false});
+
+  const totalGastos = (gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const totalExtra = (extras||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const pagosOk = (pagos||[]).filter(p=>p.pagado);
+  const totalPagado = pagosOk.reduce((a,b)=>a+Number(b.monto),0);
+  const balance = totalPagado + totalExtra - totalGastos;
+
+  document.getElementById("s-balance").textContent = "$"+balance.toLocaleString("es-CL");
+  document.getElementById("s-ingresos").textContent = "$"+totalPagado.toLocaleString("es-CL");
+  document.getElementById("s-gastos").textContent = "$"+totalGastos.toLocaleString("es-CL");
+
+  // Cumplimiento mes actual
+  const hoy = new Date();
+  const mesActual = hoy.getMonth()+1;
+  const pagosMes = (pagos||[]).filter(p=>p.mes===mesActual && p.pagado);
+  const pctMes = parcelas.length ? Math.round(pagosMes.length/parcelas.length*100) : 0;
+  document.getElementById("bar-mes").style.width = pctMes+"%";
+  document.getElementById("txt-mes").textContent = `${pctMes}% — ${pagosMes.length} de ${parcelas.length} parcelas al día en ${meses[mesActual-1]}`;
+
+  // Recaudación anual (meses transcurridos)
+  const esperadoAnual = parcelas.length * Number(c.cuota_mensual) * mesActual;
+  const pctAnio = esperadoAnual ? Math.round(totalPagado/esperadoAnual*100) : 0;
+  document.getElementById("bar-anio").style.width = Math.min(pctAnio,100)+"%";
+  document.getElementById("txt-anio").textContent = `${pctAnio}% — $${totalPagado.toLocaleString("es-CL")} de $${esperadoAnual.toLocaleString("es-CL")} esperado hasta ${meses[mesActual-1]}`;
+
+  // Tabla anual ✓/✗
+  let html = "<tr><th>Parcela</th>"+meses.map(m=>`<th>${m}</th>`).join("")+"</tr>";
+  for(const p of parcelas){
+    html += `<tr><td>${p.nombre}</td>`;
+    for(let m=1; m<=12; m++){
+      const pago = (pagos||[]).find(x=>x.parcela_id===p.id && x.mes===m);
+      html += `<td class="${pago?.pagado?'ok':'no'}">${pago?.pagado?'✓':'✗'}</td>`;
+    }
+    html += "</tr>";
+  }
+  document.getElementById("tabla-anual").innerHTML = html;
+
+  // Gastos
+  document.getElementById("lista-gastos").innerHTML = (gastos||[]).map(g=>`
+    <div class="gasto-row">
+      <div style="display:flex;justify-content:space-between;"><b>${g.descripcion}</b><span class="monto-neg">-$${Number(g.monto).toLocaleString("es-CL")}</span></div>
+      ${g.categoria||''} • ${g.fecha} ${g.proveedor?'• '+g.proveedor:''} ${g.numero_doc?'• N°'+g.numero_doc:''}
+      ${g.archivo_url?`<br><a class="link" href="${g.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+    </div>`).join("") || "<p>Sin gastos registrados</p>";
+
+  // Ingresos extra
+  document.getElementById("lista-extra").innerHTML = (extras||[]).map(e=>`
+    <div class="gasto-row">
+      <div style="display:flex;justify-content:space-between;"><b>${e.descripcion}</b><span class="monto-pos">+$${Number(e.monto).toLocaleString("es-CL")}</span></div>
+      ${e.fecha} ${e.origen?'• '+e.origen:''}
+      ${e.archivo_url?`<br><a class="link" href="${e.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+    </div>`).join("") || "<p>Sin ingresos extra</p>";
+}
+init();
+</script>
+</body>
+</html>
