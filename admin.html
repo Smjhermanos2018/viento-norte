@@ -103,14 +103,7 @@
 
   <!-- PARCELAS -->
   <div id="parcelas" class="hidden">
-    <div class="card">
-      <b>Agregar parcela</b>
-      <input id="p-nombre" placeholder="Nombre (ej: Parcela 38)">
-      <input id="p-resp" placeholder="Responsable (privado)">
-      <input id="p-rut" placeholder="RUT (privado)">
-      <input id="p-contacto" placeholder="Contacto (privado)">
-      <button onclick="guardarParcela()">Agregar</button>
-    </div>
+    <div class="card"><b>37 parcelas fijas del condominio.</b> Aquí puedes editar el contacto/responsable de cada una, o eliminar alguna duplicada por error.</div>
     <div id="lista-parcelas"></div>
   </div>
 
@@ -197,6 +190,8 @@ async function renderPagos(){
 }
 
 async function togglePago(parcela_id, anio, mes, nuevoEstado){
+  const accion = nuevoEstado ? "MARCAR COMO PAGADO" : "MARCAR COMO PENDIENTE";
+  if(!confirm(`¿${accion}?`)) return;
   await sb.from("pagos").upsert({
     parcela_id, anio, mes,
     monto: condominio.cuota_mensual,
@@ -278,7 +273,15 @@ function renderParcelas(){
   document.getElementById("lista-parcelas").innerHTML = parcelas.map(p=>`
     <div class="card row">
       <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} ${p.contacto?'• '+p.contacto:''}</small></div>
+      <button class="danger" onclick="eliminarParcela('${p.id}','${p.nombre}')">Eliminar</button>
     </div>`).join("");
+}
+
+async function eliminarParcela(id, nombre){
+  if(!confirm(`¿Eliminar "${nombre}"? Esto borra también sus pagos registrados.`)) return;
+  await sb.from("pagos").delete().eq("parcela_id", id);
+  await sb.from("parcelas").delete().eq("id", id);
+  location.reload();
 }
 
 async function guardarParcela(){
