@@ -24,3 +24,20 @@ async function main() {
   fs.mkdirSync(carpeta, { recursive: true });
 
   for (const tabla of tablas) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?select=*`, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    });
+    if (!res.ok) {
+      console.error(`Error obteniendo ${tabla}:`, await res.text());
+      continue;
+    }
+    const datos = await res.json();
+    fs.writeFileSync(`${carpeta}/${tabla}.csv`, aCSV(datos));
+    console.log(`Guardado ${tabla}.csv (${datos.length} filas)`);
+  }
+}
+
+main();
