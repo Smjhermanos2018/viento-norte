@@ -1,0 +1,30 @@
+name: Respaldo semanal Viento Norte
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'  # Todos los lunes 13:00 UTC (~10:00 Chile)
+  workflow_dispatch:        # Tambien permite ejecutarlo manualmente desde GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ejecutar respaldo
+        run: node backup.js
+
+      - name: Guardar en el repositorio
+        run: |
+          git config user.name "Respaldo Automatico"
+          git config user.email "backup@viento-norte.local"
+          git add backups/
+          git diff --cached --quiet || git commit -m "Respaldo automatico $(date +%F)"
+          git push
