@@ -54,6 +54,7 @@
       <div class="stat"><b id="s-balance">-</b><span>Balance Total</span></div>
       <div class="stat"><b id="s-ingresos">-</b><span>Ingresos (cuota)</span></div>
       <div class="stat"><b id="s-gastos">-</b><span>Gastos</span></div>
+      <div class="stat"><b id="s-deuda" style="color:var(--red)">-</b><span>Deuda Histórica Pendiente</span></div>
     </div>
     <div class="card">
       <b>Link público del reporte</b> (envíaselo a los vecinos):<br>
@@ -68,6 +69,8 @@
         <select id="pagos-mes"></select>
         <select id="pagos-anio"></select>
       </div>
+      <button class="secondary" style="width:100%;margin-bottom:10px" onclick="cerrarMes()">🔒 Cerrar este mes (traslada lo NO pagado a deuda histórica)</button>
+      <button class="danger" style="width:100%;margin-bottom:10px" onclick="deshacerCierre()">↩️ Deshacer cierre de este mes</button>
       <table id="tabla-pagos"></table>
     </div>
   </div>
@@ -258,6 +261,11 @@ async function renderDashboard(){
   document.getElementById("s-balance").textContent = "$"+balance.toLocaleString("es-CL");
   document.getElementById("s-ingresos").textContent = "$"+totalPagos.toLocaleString("es-CL");
   document.getElementById("s-gastos").textContent = "$"+totalGastos.toLocaleString("es-CL");
+
+  const { data: abonos } = await sb.from("abonos_deuda").select("monto").in("parcela_id", parcelas.map(p=>p.id));
+  const totalDeudaInicial = parcelas.reduce((a,p)=>a+Number(p.deuda_historica||0),0);
+  const totalAbonado = (abonos||[]).reduce((a,b)=>a+Number(b.monto),0);
+  document.getElementById("s-deuda").textContent = "$"+Math.max(0,totalDeudaInicial-totalAbonado).toLocaleString("es-CL");
 }
 
 async function renderPagos(){
@@ -269,14 +277,66 @@ async function renderPagos(){
   for(const p of parcelas){
     const pago = (pagos||[]).find(x=>x.parcela_id===p.id);
     const pagado = pago?.pagado;
+    const trasladado = pago?.trasladado_a_deuda;
+    const estadoTxt = pagado ? '✅ Pagado' : (trasladado ? '➡️ En deuda histórica' : '❌ Pendiente');
     html += `<tr>
       <td>${p.numero}</td>
       <td>${p.nombre}</td>
-      <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${pagado?'✅ Pagado':'❌ Pendiente'}</td>
+      <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${estadoTxt}</td>
       <td>$${Number(condominio.cuota_mensual).toLocaleString("es-CL")}</td>
     </tr>`;
   }
   document.getElementById("tabla-pagos").innerHTML = html;
+}
+
+async function cerrarMes(){
+  const mes = Number(document.getElementById("pagos-mes").value);
+  const anio = Number(document.getElementById("pagos-anio").value);
+  if(!confirm(`¿Cerrar ${meses[mes-1]} ${anio}? Todas las parcelas que quedaron con "Pendiente" van a sumarse a su deuda histórica ($${Number(condominio.cuota_mensual).toLocaleString("es-CL")} c/u). Esto no se puede deshacer fácil.`)) return;
+
+  const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes);
+  let trasladados = 0;
+  for(const p of parcelas){
+    const pago = (pagos||[]).find(x=>x.parcela_id===p.id);
+    const yaPago = pago?.pagado;
+    const yaTrasladado = pago?.trasladado_a_deuda;
+    if(!yaPago && !yaTrasladado){
+      const nuevaDeuda = Number(p.deuda_historica||0) + Number(condominio.cuota_mensual);
+      await sb.from("parcelas").update({ deuda_historica: nuevaDeuda }).eq("id", p.id);
+      p.deuda_historica = nuevaDeuda;
+      await sb.from("pagos").upsert({
+        parcela_id: p.id, anio, mes,
+        monto: condominio.cuota_mensual, pagado: false, trasladado_a_deuda: true
+      }, { onConflict: "parcela_id,anio,mes" });
+      trasladados++;
+    }
+  }
+  alert(`Listo. ${trasladados} parcela(s) sin pago de ${meses[mes-1]} se sumaron a su deuda histórica.`);
+  await renderPagos();
+  await renderDashboard();
+  await renderDeudas();
+}
+
+async function deshacerCierre(){
+  const mes = Number(document.getElementById("pagos-mes").value);
+  const anio = Number(document.getElementById("pagos-anio").value);
+  if(!confirm(`¿Deshacer el cierre de ${meses[mes-1]} ${anio}? Se resta lo que se sumó a la deuda histórica y esas parcelas vuelven a "Pendiente" normal.`)) return;
+
+  const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes).eq("trasladado_a_deuda", true);
+  let revertidos = 0;
+  for(const pago of (pagos||[])){
+    const p = parcelas.find(x=>x.id===pago.parcela_id);
+    if(!p) continue;
+    const nuevaDeuda = Math.max(0, Number(p.deuda_historica||0) - Number(condominio.cuota_mensual));
+    await sb.from("parcelas").update({ deuda_historica: nuevaDeuda }).eq("id", p.id);
+    p.deuda_historica = nuevaDeuda;
+    await sb.from("pagos").update({ trasladado_a_deuda: false }).eq("id", pago.id);
+    revertidos++;
+  }
+  alert(`Listo. ${revertidos} parcela(s) volvieron a estado Pendiente normal.`);
+  await renderPagos();
+  await renderDashboard();
+  await renderDeudas();
 }
 
 async function togglePago(parcela_id, anio, mes, nuevoEstado){
