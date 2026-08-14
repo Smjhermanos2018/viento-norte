@@ -128,7 +128,7 @@ async function init(){
     html += `<tr><td>${p.nombre}</td>`;
     for(let m=1; m<=12; m++){
       const pago = (pagos||[]).find(x=>x.parcela_id===p.id && x.mes===m);
-      html += `<td class="${pago?.pagado?'ok':'no'}">${pago?.pagado?'✓':'✗'}</td>`;
+      html += `<td class="${pago?.pagado?'ok':'no'}">${pago?.pagado?'✅':'❌'}</td>`;
     }
     html += "</tr>";
   }

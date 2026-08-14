@@ -182,7 +182,7 @@ async function renderPagos(){
     html += `<tr>
       <td>${p.numero}</td>
       <td>${p.nombre}</td>
-      <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${pagado?'✓ Pagado':'✗ Pendiente'}</td>
+      <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${pagado?'✅ Pagado':'❌ Pendiente'}</td>
       <td>$${Number(condominio.cuota_mensual).toLocaleString("es-CL")}</td>
     </tr>`;
   }
@@ -238,7 +238,15 @@ async function renderGastos(){
       <div class="row"><b>${g.descripcion}</b><span style="color:var(--red)">-$${Number(g.monto).toLocaleString("es-CL")}</span></div>
       <span class="pill">${g.categoria||''}</span> ${g.fecha} • ${g.proveedor||''} ${g.numero_doc?'• N°'+g.numero_doc:''}
       ${g.archivo_url?`<br><a class="link" href="${g.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+      <br><button class="danger" style="margin-top:6px" onclick="eliminarGasto('${g.id}')">Eliminar</button>
     </div>`).join("");
+}
+
+async function eliminarGasto(id){
+  if(!confirm("¿Eliminar este gasto?")) return;
+  await sb.from("gastos").delete().eq("id", id);
+  await renderGastos();
+  await renderDashboard();
 }
 
 async function guardarExtra(){
@@ -266,7 +274,15 @@ async function renderExtra(){
       <div class="row"><b>${e.descripcion}</b><span style="color:var(--green)">+$${Number(e.monto).toLocaleString("es-CL")}</span></div>
       ${e.fecha} • Origen: ${e.origen||''}
       ${e.archivo_url?`<br><a class="link" href="${e.archivo_url}" target="_blank">Ver comprobante</a>`:''}
+      <br><button class="danger" style="margin-top:6px" onclick="eliminarExtra('${e.id}')">Eliminar</button>
     </div>`).join("");
+}
+
+async function eliminarExtra(id){
+  if(!confirm("¿Eliminar este ingreso?")) return;
+  await sb.from("ingresos_extra").delete().eq("id", id);
+  await renderExtra();
+  await renderDashboard();
 }
 
 function renderParcelas(){
