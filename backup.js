@@ -21,3 +21,6 @@ function aCSV(filas) {
 async function main() {
   const fecha = new Date().toISOString().slice(0, 10);
   const carpeta = `backups/${fecha}`;
+  fs.mkdirSync(carpeta, { recursive: true });
+
+  for (const tabla of tablas) {
