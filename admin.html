@@ -44,6 +44,7 @@
     <div class="tab" data-tab="gastos">Gastos</div>
     <div class="tab" data-tab="extra">Ingresos Extra</div>
     <div class="tab" data-tab="parcelas">Parcelas</div>
+    <div class="tab" data-tab="deudas">Deudas Históricas</div>
   </div>
 
   <!-- DASHBOARD -->
@@ -81,6 +82,12 @@
       <input id="g-fecha" type="date">
       <input id="g-prov" placeholder="Proveedor">
       <input id="g-doc" placeholder="N° boleta/factura">
+      <select id="g-tipo">
+        <option value="general">Gasto general</option>
+        <option value="reembolso">Reembolso a vecino (él pagó, se le devuelve)</option>
+      </select>
+      <input id="g-pagado-a" placeholder="¿A qué parcela/vecino se le pagó? (opcional)">
+      <textarea id="g-obs" placeholder="Observación (ej: reparación del portón, vecino adelantó el gasto)"></textarea>
       <input id="g-archivo" type="file" accept="image/*,application/pdf">
       <button onclick="guardarGasto()">Guardar Gasto</button>
     </div>
@@ -105,6 +112,12 @@
   <div id="parcelas" class="hidden">
     <div class="card"><b>37 parcelas fijas del condominio.</b> Aquí puedes editar el contacto/responsable de cada una, o eliminar alguna duplicada por error.</div>
     <div id="lista-parcelas"></div>
+  </div>
+
+  <!-- DEUDAS HISTORICAS -->
+  <div id="deudas" class="hidden">
+    <div class="card">Deuda que arrastra cada parcela de antes de este sistema. Registra cuánto debía cada una, y luego ve abonando pagos que la reduzcan. En el reporte público solo se muestra el <b>total</b>, no el detalle por parcela.</div>
+    <div id="lista-deudas"></div>
   </div>
 
 </div>
@@ -140,19 +153,96 @@ async function init(){
 
   // selects de mes/año
   const mesSel = document.getElementById("pagos-mes");
-  meses.forEach((m,i)=> mesSel.innerHTML += `<option value="${i+1}">${m}</option>`);
-  mesSel.value = new Date().getMonth()+1;
   const anioSel = document.getElementById("pagos-anio");
-  [2025,2026,2027].forEach(a=> anioSel.innerHTML += `<option value="${a}">${a}</option>`);
-  anioSel.value = condominio.anio;
+  [2026,2027,2028].forEach(a=> anioSel.innerHTML += `<option value="${a}">${a}</option>`);
+  anioSel.value = 2026;
+
+  function poblarMeses(){
+    const anioElegido = Number(anioSel.value);
+    mesSel.innerHTML = "";
+    const desde = anioElegido === 2026 ? 8 : 1; // 2026 arranca en Agosto
+    for(let i=desde;i<=12;i++){
+      mesSel.innerHTML += `<option value="${i}">${meses[i-1]}</option>`;
+    }
+    mesSel.value = anioElegido === 2026 ? 8 : 1;
+  }
+  poblarMeses();
   mesSel.onchange = renderPagos;
-  anioSel.onchange = renderPagos;
+  anioSel.onchange = ()=>{ poblarMeses(); renderPagos(); };
 
   await renderPagos();
   await renderDashboard();
   await renderGastos();
   await renderExtra();
   renderParcelas();
+  await renderDeudas();
+}
+
+let abonosPorParcela = {};
+
+async function renderDeudas(){
+  const { data: abonos } = await sb.from("abonos_deuda").select("*").in("parcela_id", parcelas.map(p=>p.id));
+  abonosPorParcela = {};
+  (abonos||[]).forEach(a=>{
+    if(!abonosPorParcela[a.parcela_id]) abonosPorParcela[a.parcela_id] = [];
+    abonosPorParcela[a.parcela_id].push(a);
+  });
+
+  document.getElementById("lista-deudas").innerHTML = parcelas.map(p=>{
+    const abonosP = abonosPorParcela[p.id] || [];
+    const totalAbonado = abonosP.reduce((a,b)=>a+Number(b.monto),0);
+    const saldo = Number(p.deuda_historica||0) - totalAbonado;
+    return `
+    <div class="card">
+      <div class="row">
+        <b>${p.nombre}</b>
+        <span>Saldo pendiente: <b style="color:${saldo>0?'var(--red)':'var(--green)'}">$${saldo.toLocaleString("es-CL")}</b></span>
+      </div>
+      <small>Deuda inicial: $${Number(p.deuda_historica||0).toLocaleString("es-CL")} • Abonado: $${totalAbonado.toLocaleString("es-CL")}</small>
+      <div class="row" style="margin-top:8px;gap:6px">
+        <button class="secondary" onclick="editarDeudaInicial('${p.id}', ${p.deuda_historica||0})">Editar deuda inicial</button>
+        <button onclick="abrirAbono('${p.id}','${p.nombre}')">Registrar abono</button>
+      </div>
+      <div id="abono-form-${p.id}" class="hidden" style="margin-top:8px">
+        <input id="ab-monto-${p.id}" type="number" placeholder="Monto abonado">
+        <input id="ab-fecha-${p.id}" type="date">
+        <input id="ab-archivo-${p.id}" type="file" accept="image/*,application/pdf">
+        <button onclick="guardarAbono('${p.id}')">Guardar Abono</button>
+      </div>
+      ${abonosP.length? `<details style="margin-top:6px"><summary>Ver abonos (${abonosP.length})</summary>` +
+        abonosP.map(a=>`<div>${a.fecha} - $${Number(a.monto).toLocaleString("es-CL")} ${a.archivo_url?`<a class="link" href="${a.archivo_url}" target="_blank">ver</a>`:''} <button class="danger" onclick="eliminarAbono('${a.id}')">x</button></div>`).join("")
+        +`</details>` : ''}
+    </div>`;
+  }).join("");
+}
+
+async function editarDeudaInicial(parcela_id, actual){
+  const nuevo = prompt("Deuda histórica inicial de esta parcela:", actual);
+  if(nuevo === null) return;
+  await sb.from("parcelas").update({ deuda_historica: Number(nuevo) }).eq("id", parcela_id);
+  const p = parcelas.find(x=>x.id===parcela_id); if(p) p.deuda_historica = Number(nuevo);
+  await renderDeudas();
+}
+
+function abrirAbono(parcela_id){
+  document.getElementById(`abono-form-${parcela_id}`).classList.toggle("hidden");
+}
+
+async function guardarAbono(parcela_id){
+  const monto = Number(document.getElementById(`ab-monto-${parcela_id}`).value);
+  if(!monto) return alert("Ingresa un monto");
+  const archivo = document.getElementById(`ab-archivo-${parcela_id}`).files[0];
+  const archivo_url = await subirArchivo(archivo);
+  const fecha = document.getElementById(`ab-fecha-${parcela_id}`).value || new Date().toISOString().slice(0,10);
+  const { error } = await sb.from("abonos_deuda").insert({ parcela_id, monto, fecha, archivo_url });
+  if(error){ alert("Error: "+error.message); return; }
+  await renderDeudas();
+}
+
+async function eliminarAbono(id){
+  if(!confirm("¿Eliminar este abono?")) return;
+  await sb.from("abonos_deuda").delete().eq("id", id);
+  await renderDeudas();
 }
 
 async function renderDashboard(){
@@ -222,10 +312,12 @@ async function guardarGasto(){
     fecha: document.getElementById("g-fecha").value || new Date().toISOString().slice(0,10),
     proveedor: document.getElementById("g-prov").value,
     numero_doc: document.getElementById("g-doc").value,
+    observacion: (document.getElementById("g-tipo").value === "reembolso" ? "REEMBOLSO A VECINO. " : "") + document.getElementById("g-obs").value,
+    pagado_a: document.getElementById("g-pagado-a").value,
     archivo_url
   });
   if(error){ alert("Error: "+error.message); return; }
-  ["g-desc","g-cat","g-monto","g-fecha","g-prov","g-doc"].forEach(id=>document.getElementById(id).value="");
+  ["g-desc","g-cat","g-monto","g-fecha","g-prov","g-doc","g-pagado-a","g-obs"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("g-archivo").value = "";
   await renderGastos();
   await renderDashboard();
@@ -237,6 +329,8 @@ async function renderGastos(){
     <div class="card">
       <div class="row"><b>${g.descripcion}</b><span style="color:var(--red)">-$${Number(g.monto).toLocaleString("es-CL")}</span></div>
       <span class="pill">${g.categoria||''}</span> ${g.fecha} • ${g.proveedor||''} ${g.numero_doc?'• N°'+g.numero_doc:''}
+      ${g.pagado_a?`<br><b>Pagado a:</b> ${g.pagado_a}`:''}
+      ${g.observacion?`<br><i>${g.observacion}</i>`:''}
       ${g.archivo_url?`<br><a class="link" href="${g.archivo_url}" target="_blank">Ver comprobante</a>`:''}
       <br><button class="danger" style="margin-top:6px" onclick="eliminarGasto('${g.id}')">Eliminar</button>
     </div>`).join("");

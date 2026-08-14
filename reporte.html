@@ -59,6 +59,11 @@
   </div>
 
   <div class="card">
+    <b>Deuda histórica pendiente (total condominio)</b>
+    <div id="deuda-historica-total" style="font-size:22px;font-weight:bold;color:var(--red);margin-top:6px">-</div>
+  </div>
+
+  <div class="card">
     <b>Resumen anual de pagos (✓ pagado / ✗ pendiente)</b>
     <div class="scrolltab"><table id="tabla-anual"></table></div>
   </div>
@@ -91,8 +96,14 @@ async function init(){
 
   document.getElementById("titulo").innerHTML = `<h1>${c.nombre}</h1>Año ${c.anio} • Cuota mensual $${Number(c.cuota_mensual).toLocaleString("es-CL")}`;
 
-  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre").eq("condominio_id", c.id).order("numero");
+  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre,deuda_historica").eq("condominio_id", c.id).order("numero");
   document.getElementById("s-parcelas").textContent = parcelas.length;
+
+  const { data: abonos } = await sb.from("abonos_deuda").select("monto").in("parcela_id", parcelas.map(p=>p.id));
+  const totalDeudaInicial = parcelas.reduce((a,p)=>a+Number(p.deuda_historica||0),0);
+  const totalAbonado = (abonos||[]).reduce((a,b)=>a+Number(b.monto),0);
+  const deudaPendiente = Math.max(0, totalDeudaInicial - totalAbonado);
+  document.getElementById("deuda-historica-total").textContent = "$"+deudaPendiente.toLocaleString("es-CL");
 
   const { data: pagos } = await sb.from("pagos").select("*").in("parcela_id", parcelas.map(p=>p.id)).eq("anio", c.anio);
   const { data: gastos } = await sb.from("gastos").select("*").eq("condominio_id", c.id).order("fecha",{ascending:false});
@@ -122,11 +133,13 @@ async function init(){
   document.getElementById("bar-anio").style.width = Math.min(pctAnio,100)+"%";
   document.getElementById("txt-anio").textContent = `${pctAnio}% — $${totalPagado.toLocaleString("es-CL")} de $${esperadoAnual.toLocaleString("es-CL")} esperado hasta ${meses[mesActual-1]}`;
 
-  // Tabla anual ✓/✗
-  let html = "<tr><th>Parcela</th>"+meses.map(m=>`<th>${m}</th>`).join("")+"</tr>";
+  // Tabla anual ✓/✗ (2026 arranca en Agosto)
+  const mesDesde = c.anio === 2026 ? 8 : 1;
+  const mesesVisibles = meses.slice(mesDesde-1);
+  let html = "<tr><th>Parcela</th>"+mesesVisibles.map(m=>`<th>${m}</th>`).join("")+"</tr>";
   for(const p of parcelas){
     html += `<tr><td>${p.nombre}</td>`;
-    for(let m=1; m<=12; m++){
+    for(let m=mesDesde; m<=12; m++){
       const pago = (pagos||[]).find(x=>x.parcela_id===p.id && x.mes===m);
       html += `<td class="${pago?.pagado?'ok':'no'}">${pago?.pagado?'✅':'❌'}</td>`;
     }
@@ -139,6 +152,7 @@ async function init(){
     <div class="gasto-row">
       <div style="display:flex;justify-content:space-between;"><b>${g.descripcion}</b><span class="monto-neg">-$${Number(g.monto).toLocaleString("es-CL")}</span></div>
       ${g.categoria||''} • ${g.fecha} ${g.proveedor?'• '+g.proveedor:''} ${g.numero_doc?'• N°'+g.numero_doc:''}
+      ${g.observacion?`<br><i>${g.observacion}</i>`:''}
       ${g.archivo_url?`<br><a class="link" href="${g.archivo_url}" target="_blank">Ver comprobante</a>`:''}
     </div>`).join("") || "<p>Sin gastos registrados</p>";
 
