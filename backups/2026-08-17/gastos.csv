@@ -1,0 +1,2 @@
+id,condominio_id,descripcion,categoria,monto,fecha,proveedor,numero_doc,archivo_url,created_at,observacion,pagado_a
+"911f8017-bb19-49ac-ba44-74c2e584617c","2783a53c-d84a-4cb0-b17a-999943a335f5","Malla acma ","Seguridad ","380.666","2026-08-14","","","https://lhmyoayjwltklxvdxdzn.supabase.co/storage/v1/object/public/comprobantes/1786728826156_d9663698-eb4c-4640-91d2-16681b62a40a.jpeg","2026-08-14T17:33:47.314385+00:00","","Victor cortes pago para compensar deuda de gastos comunes "
