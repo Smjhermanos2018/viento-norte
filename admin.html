@@ -445,7 +445,15 @@ async function eliminarExtra(id){
 }
 
 function renderParcelas(){
-  document.getElementById("lista-parcelas").innerHTML = parcelas.map(p=>`
+  const conNumero = parcelas.filter(p=>p.contacto).length;
+  document.getElementById("lista-parcelas").innerHTML = `
+    <div class="card">
+      <b>Envío masivo</b><br>
+      <small>${conNumero} de ${parcelas.length} parcelas tienen WhatsApp cargado.</small><br>
+      <button style="margin-top:8px;width:100%" onclick="enviarATodos()">📲 Enviar reporte a todos (uno por uno)</button>
+      <small style="display:block;margin-top:6px;color:#777">WhatsApp exige que tú apruetes cada envío — se van a ir abriendo los chats de a uno, cada 3 segundos, ya con el mensaje listo. Solo dale "Enviar" en cada uno.</small>
+    </div>
+  ` + parcelas.map(p=>`
     <div class="card">
       <div class="row">
         <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''}</small></div>
@@ -467,13 +475,26 @@ async function editarContacto(id, actual){
   renderParcelas();
 }
 
-function enviarWhatsapp(parcela_id){
-  const p = parcelas.find(x=>x.id===parcela_id);
-  if(!p || !p.contacto) return alert("Esta parcela no tiene número de WhatsApp guardado");
+function linkWhatsapp(p){
   const numero = p.contacto.replace(/\D/g,"");
   const link = `${location.origin}${location.pathname.replace("admin.html","reporte.html")}?code=${CODIGO}&parcela=${p.numero}`;
   const mensaje = `Hola, te comparto el reporte de tesorería de ${condominio.nombre} (${p.nombre}). Puedes ver tu deuda histórica aquí: ${link}`;
-  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, "_blank");
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+}
+
+function enviarWhatsapp(parcela_id){
+  const p = parcelas.find(x=>x.id===parcela_id);
+  if(!p || !p.contacto) return alert("Esta parcela no tiene número de WhatsApp guardado");
+  window.open(linkWhatsapp(p), "_blank");
+}
+
+function enviarATodos(){
+  const lista = parcelas.filter(p=>p.contacto);
+  if(!lista.length) return alert("Ninguna parcela tiene WhatsApp cargado todavía.");
+  if(!confirm(`Se van a abrir ${lista.length} chats de WhatsApp, uno cada 3 segundos. En cada uno solo dale "Enviar". ¿Continuar?`)) return;
+  lista.forEach((p, i)=>{
+    setTimeout(()=> window.open(linkWhatsapp(p), "_blank"), i*3000);
+  });
 }
 
 async function eliminarParcela(id, nombre){
