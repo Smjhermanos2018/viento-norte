@@ -63,11 +63,8 @@
     <div id="deuda-historica-total" style="font-size:22px;font-weight:bold;color:var(--red);margin-top:6px">-</div>
   </div>
 
-  <div class="card">
-    <b>Consulta tu deuda histórica individual</b>
-    <select id="selector-parcela" style="width:100%;padding:10px;margin-top:8px;border:1px solid #ccc;border-radius:6px;">
-      <option value="">Selecciona tu parcela...</option>
-    </select>
+  <div id="card-deuda-individual" class="card hidden">
+    <b>Tu deuda histórica</b>
     <div id="deuda-individual" style="margin-top:10px"></div>
   </div>
 
@@ -123,31 +120,23 @@ async function init(){
   const deudaPendiente = Math.max(0, totalDeudaInicial - totalAbonado);
   document.getElementById("deuda-historica-total").textContent = "$"+deudaPendiente.toLocaleString("es-CL");
 
-  // Selector de parcela para consulta individual de deuda
-  const selector = document.getElementById("selector-parcela");
-  parcelas.forEach(p=>{
-    selector.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
-  });
-  selector.onchange = ()=>{
-    const cont = document.getElementById("deuda-individual");
-    if(!selector.value){ cont.innerHTML = ""; return; }
-    const p = parcelas.find(x=>x.id===selector.value);
-    const abonosP = (abonos||[]).filter(a=>a.parcela_id===p.id);
-    const abonadoP = abonosP.reduce((a,b)=>a+Number(b.monto),0);
-    const saldoP = Math.max(0, Number(p.deuda_historica||0) - abonadoP);
-    cont.innerHTML = `
-      <div style="background:#f7f6f2;border-radius:8px;padding:12px;">
-        <b>${p.nombre}</b><br>
-        Deuda histórica pendiente: <b style="color:${saldoP>0?'var(--red)':'var(--green)'}">$${saldoP.toLocaleString("es-CL")}</b><br>
-        ${abonosP.length ? `<small>Abonos registrados: ${abonosP.length}</small>` : '<small>Sin abonos registrados</small>'}
-      </div>`;
-  };
-
-  // Si el link trae ?parcela=NUMERO, la selecciona automaticamente
+  // Deuda individual: SOLO se muestra si el link trae ?parcela=NUMERO (link personalizado por WhatsApp)
+  // Sin ese parametro, nadie ve deuda de ninguna parcela (ni la propia ni ajena)
   const numeroParcelaURL = params.get("parcela");
   if(numeroParcelaURL){
-    const pURL = parcelas.find(x=>String(x.numero)===String(numeroParcelaURL));
-    if(pURL){ selector.value = pURL.id; selector.onchange(); }
+    const p = parcelas.find(x=>String(x.numero)===String(numeroParcelaURL));
+    if(p){
+      const abonosP = (abonos||[]).filter(a=>a.parcela_id===p.id);
+      const abonadoP = abonosP.reduce((a,b)=>a+Number(b.monto),0);
+      const saldoP = Math.max(0, Number(p.deuda_historica||0) - abonadoP);
+      document.getElementById("card-deuda-individual").classList.remove("hidden");
+      document.getElementById("deuda-individual").innerHTML = `
+        <div style="background:#f7f6f2;border-radius:8px;padding:12px;">
+          <b>${p.nombre}</b><br>
+          Deuda histórica pendiente: <b style="color:${saldoP>0?'var(--red)':'var(--green)'}">$${saldoP.toLocaleString("es-CL")}</b><br>
+          ${abonosP.length ? `<small>Abonos registrados: ${abonosP.length}</small>` : '<small>Sin abonos registrados</small>'}
+        </div>`;
+    }
   }
 
   const { data: pagos } = await sb.from("pagos").select("*").in("parcela_id", parcelas.map(p=>p.id)).eq("anio", c.anio);
