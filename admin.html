@@ -478,7 +478,7 @@ async function editarContacto(id, actual){
 function linkWhatsapp(p){
   const numero = p.contacto.replace(/\D/g,"");
   const link = `${location.origin}${location.pathname.replace("admin.html","reporte.html")}?code=${CODIGO}&parcela=${p.numero}`;
-  const mensaje = `Hola, te comparto el reporte de tesorería de ${condominio.nombre} (${p.nombre}). Puedes ver tu deuda histórica aquí: ${link}`;
+  const mensaje = `Hola, Vecin@ te comparto el reporte de tesorería de ${condominio.nombre} (${p.nombre}). En caso de tener deuda histórica, trata de ir poniéndote al día para que así podamos seguir haciendo cosas para el condominio. Si no tienes deuda, puedes revisar el reporte de igual manera: ${link} gracias.`;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
 
