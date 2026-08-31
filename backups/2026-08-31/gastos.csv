@@ -1,0 +1,4 @@
+id,condominio_id,descripcion,categoria,monto,fecha,proveedor,numero_doc,archivo_url,created_at,observacion,pagado_a
+"d5ed88b4-b819-4c8f-8a88-77ad6ab33d47","2783a53c-d84a-4cb0-b17a-999943a335f5","David Ledezma ","Mantención jardinería ","60000","2026-08-29","","","","2026-08-29T01:42:06.746074+00:00","",""
+"f8d35898-72b0-48ef-a021-d62dfead9462","2783a53c-d84a-4cb0-b17a-999943a335f5","Eduardo electricista ","Mantención entrada ","410000","2026-08-29","Electricista ","38","https://lhmyoayjwltklxvdxdzn.supabase.co/storage/v1/object/public/comprobantes/1787968793607_IMG_2088.jpeg","2026-08-29T01:59:54.559818+00:00","",""
+"be5e86b4-4bbd-4104-85a2-0fa9698f8dd2","2783a53c-d84a-4cb0-b17a-999943a335f5","Instalación malla acma costado entrada ","Mantención ","210000","2026-08-29","Héctor cayulef ","Sin número ","","2026-08-29T02:00:48.487653+00:00","",""
