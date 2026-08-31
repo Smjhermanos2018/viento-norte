@@ -55,7 +55,8 @@
       <div class="stat"><b id="s-balance">-</b><span>Balance Total</span></div>
       <div class="stat"><b id="s-ingresos">-</b><span>Ingresos (cuota)</span></div>
       <div class="stat"><b id="s-gastos">-</b><span>Gastos</span></div>
-      <div class="stat"><b id="s-deuda" style="color:var(--red)">-</b><span>Deuda Histórica Pendiente</span></div>
+      <div class="stat"><b id="s-deuda" style="color:var(--red)">-</b><span>Deuda Histórica (condominio)</span></div>
+      <div class="stat"><b id="s-deuda-riego" style="color:#c48a00">-</b><span>Deuda Agua Riego (proveedor, no del condominio)</span></div>
     </div>
     <div class="card">
       <b>Link público del reporte</b> (envíaselo a los vecinos):<br>
@@ -76,6 +77,7 @@
       </div>
       <button class="secondary" style="width:100%;margin-bottom:10px" onclick="cerrarMes()">🔒 Cerrar este mes (traslada lo NO pagado a deuda histórica)</button>
       <button class="danger" style="width:100%;margin-bottom:10px" onclick="deshacerCierre()">↩️ Deshacer cierre de este mes</button>
+      <div id="resumen-riego" style="background:#eef7f0;border-radius:8px;padding:10px;margin-bottom:10px;font-size:14px"></div>
       <table id="tabla-pagos"></table>
     </div>
   </div>
@@ -271,6 +273,14 @@ async function renderDashboard(){
   const totalDeudaInicial = parcelas.reduce((a,p)=>a+Number(p.deuda_historica||0),0);
   const totalAbonado = (abonos||[]).reduce((a,b)=>a+Number(b.monto),0);
   document.getElementById("s-deuda").textContent = "$"+Math.max(0,totalDeudaInicial-totalAbonado).toLocaleString("es-CL");
+
+  const totalDeudaRiego = parcelas.reduce((a,p)=>a+Number(p.deuda_riego||0),0);
+  document.getElementById("s-deuda-riego").textContent = "$"+totalDeudaRiego.toLocaleString("es-CL");
+}
+
+function montoCuota(p){
+  // Gasto comun $30.000 para todos + Agua de riego $10.000 solo si la parcela lo recibe
+  return 30000 + (p.tiene_riego ? 10000 : 0);
 }
 
 async function renderPagos(){
@@ -279,6 +289,7 @@ async function renderPagos(){
   const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes);
 
   let html = "<tr><th>#</th><th>Parcela</th><th>Estado</th><th>Monto</th></tr>";
+  let recaudadoRiego = 0, riegoPagadas = 0, riegoTotal = 0;
   for(const p of parcelas){
     const pago = (pagos||[]).find(x=>x.parcela_id===p.id);
     const pagado = pago?.pagado;
@@ -286,18 +297,26 @@ async function renderPagos(){
     const estadoTxt = pagado ? '✅ Pagado' : (trasladado ? '➡️ En deuda histórica' : '❌ Pendiente');
     html += `<tr>
       <td>${p.numero}</td>
-      <td>${p.nombre}</td>
+      <td>${p.nombre} ${p.tiene_riego?'💧':''}</td>
       <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${estadoTxt}</td>
-      <td>$${Number(condominio.cuota_mensual).toLocaleString("es-CL")}</td>
+      <td>$${montoCuota(p).toLocaleString("es-CL")}</td>
     </tr>`;
+    if(p.tiene_riego){
+      riegoTotal++;
+      if(pagado){ recaudadoRiego += 10000; riegoPagadas++; }
+    }
   }
   document.getElementById("tabla-pagos").innerHTML = html;
+  document.getElementById("resumen-riego").innerHTML = riegoTotal
+    ? `💧 <b>Agua de riego este mes:</b> recaudado $${recaudadoRiego.toLocaleString("es-CL")} (${riegoPagadas} de ${riegoTotal} parcelas con riego pagaron) — esto es lo que le corresponde transferir al proveedor del agua.`
+    : `Ninguna parcela tiene agua de riego marcada todavía (pestaña Parcelas).`;
 }
+
 
 async function cerrarMes(){
   const mes = Number(document.getElementById("pagos-mes").value);
   const anio = Number(document.getElementById("pagos-anio").value);
-  if(!confirm(`¿Cerrar ${meses[mes-1]} ${anio}? Todas las parcelas que quedaron con "Pendiente" van a sumarse a su deuda histórica ($${Number(condominio.cuota_mensual).toLocaleString("es-CL")} c/u). Esto no se puede deshacer fácil.`)) return;
+  if(!confirm(`¿Cerrar ${meses[mes-1]} ${anio}? Las parcelas "Pendiente" sumarán $30.000 a su deuda con el condominio. Si tienen riego, los $10.000 de agua van a una cuenta APARTE (deuda con el proveedor, no del condominio). Esto no se puede deshacer fácil.`)) return;
 
   const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes);
   let trasladados = 0;
@@ -306,17 +325,19 @@ async function cerrarMes(){
     const yaPago = pago?.pagado;
     const yaTrasladado = pago?.trasladado_a_deuda;
     if(!yaPago && !yaTrasladado){
-      const nuevaDeuda = Number(p.deuda_historica||0) + Number(condominio.cuota_mensual);
-      await sb.from("parcelas").update({ deuda_historica: nuevaDeuda }).eq("id", p.id);
+      const nuevaDeuda = Number(p.deuda_historica||0) + 30000; // solo gasto comun, no riego
+      const nuevaDeudaRiego = Number(p.deuda_riego||0) + (p.tiene_riego ? 10000 : 0);
+      await sb.from("parcelas").update({ deuda_historica: nuevaDeuda, deuda_riego: nuevaDeudaRiego }).eq("id", p.id);
       p.deuda_historica = nuevaDeuda;
+      p.deuda_riego = nuevaDeudaRiego;
       await sb.from("pagos").upsert({
         parcela_id: p.id, anio, mes,
-        monto: condominio.cuota_mensual, pagado: false, trasladado_a_deuda: true
+        monto: montoCuota(p), pagado: false, trasladado_a_deuda: true
       }, { onConflict: "parcela_id,anio,mes" });
       trasladados++;
     }
   }
-  alert(`Listo. ${trasladados} parcela(s) sin pago de ${meses[mes-1]} se sumaron a su deuda histórica.`);
+  alert(`Listo. ${trasladados} parcela(s) sin pago de ${meses[mes-1]} se sumaron a su deuda (separando gasto común de agua de riego).`);
   await renderPagos();
   await renderDashboard();
   await renderDeudas();
@@ -325,16 +346,18 @@ async function cerrarMes(){
 async function deshacerCierre(){
   const mes = Number(document.getElementById("pagos-mes").value);
   const anio = Number(document.getElementById("pagos-anio").value);
-  if(!confirm(`¿Deshacer el cierre de ${meses[mes-1]} ${anio}? Se resta lo que se sumó a la deuda histórica y esas parcelas vuelven a "Pendiente" normal.`)) return;
+  if(!confirm(`¿Deshacer el cierre de ${meses[mes-1]} ${anio}? Se resta lo que se sumó a ambas deudas y esas parcelas vuelven a "Pendiente" normal.`)) return;
 
   const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes).eq("trasladado_a_deuda", true);
   let revertidos = 0;
   for(const pago of (pagos||[])){
     const p = parcelas.find(x=>x.id===pago.parcela_id);
     if(!p) continue;
-    const nuevaDeuda = Math.max(0, Number(p.deuda_historica||0) - Number(condominio.cuota_mensual));
-    await sb.from("parcelas").update({ deuda_historica: nuevaDeuda }).eq("id", p.id);
+    const nuevaDeuda = Math.max(0, Number(p.deuda_historica||0) - 30000);
+    const nuevaDeudaRiego = Math.max(0, Number(p.deuda_riego||0) - (p.tiene_riego ? 10000 : 0));
+    await sb.from("parcelas").update({ deuda_historica: nuevaDeuda, deuda_riego: nuevaDeudaRiego }).eq("id", p.id);
     p.deuda_historica = nuevaDeuda;
+    p.deuda_riego = nuevaDeudaRiego;
     await sb.from("pagos").update({ trasladado_a_deuda: false }).eq("id", pago.id);
     revertidos++;
   }
@@ -345,11 +368,12 @@ async function deshacerCierre(){
 }
 
 async function togglePago(parcela_id, anio, mes, nuevoEstado){
+  const p = parcelas.find(x=>x.id===parcela_id);
   const accion = nuevoEstado ? "MARCAR COMO PAGADO" : "MARCAR COMO PENDIENTE";
   if(!confirm(`¿${accion}?`)) return;
   await sb.from("pagos").upsert({
     parcela_id, anio, mes,
-    monto: condominio.cuota_mensual,
+    monto: montoCuota(p),
     pagado: nuevoEstado,
     fecha_pago: nuevoEstado ? new Date().toISOString().slice(0,10) : null
   }, { onConflict: "parcela_id,anio,mes" });
@@ -456,8 +480,12 @@ function renderParcelas(){
   ` + parcelas.map(p=>`
     <div class="card">
       <div class="row">
-        <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''}</small></div>
+        <div><b>${p.nombre}</b> ${p.tiene_riego?'💧':''}<br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} • Cuota: $${montoCuota(p).toLocaleString("es-CL")}</small></div>
         <button class="danger" onclick="eliminarParcela('${p.id}','${p.nombre}')">Eliminar</button>
+      </div>
+      <div style="margin-top:8px">
+        <button class="secondary" onclick="toggleRiego('${p.id}',${!p.tiene_riego})">${p.tiene_riego ? '💧 Quitar agua de riego' : '➕ Agregar agua de riego (+$10.000)'}</button>
+        ${Number(p.deuda_riego||0)>0 ? `<div style="margin-top:6px;color:#c48a00"><small>💧 Debe al proveedor de agua: $${Number(p.deuda_riego).toLocaleString("es-CL")}</small></div>` : ''}
       </div>
       <div style="margin-top:8px">
         <small>WhatsApp: ${p.contacto || '(sin numero)'}</small>
@@ -465,6 +493,13 @@ function renderParcelas(){
       </div>
       ${p.contacto ? `<button style="margin-top:8px;width:100%" onclick="enviarWhatsapp('${p.id}')">📲 Enviar reporte por WhatsApp</button>` : ''}
     </div>`).join("");
+}
+
+async function toggleRiego(id, nuevoValor){
+  await sb.from("parcelas").update({ tiene_riego: nuevoValor }).eq("id", id);
+  const p = parcelas.find(x=>x.id===id); if(p) p.tiene_riego = nuevoValor;
+  renderParcelas();
+  await renderPagos();
 }
 
 async function editarContacto(id, actual){
