@@ -33,6 +33,7 @@
   .hidden{display:none;}
   a.link{color:var(--navy);}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <header>🏘️ Viento Norte - Panel Tesorero</header>
@@ -59,6 +60,10 @@
     <div class="card">
       <b>Link público del reporte</b> (envíaselo a los vecinos):<br>
       <a class="link" id="link-publico" href="#" target="_blank"></a>
+    </div>
+    <div class="card">
+      <button style="width:100%" onclick="exportarExcel()">📥 Descargar respaldo completo en Excel</button>
+      <small>Guarda una copia de todo (pagos, gastos, deudas) por si algo falla en la app.</small>
     </div>
   </div>
 
@@ -441,10 +446,34 @@ async function eliminarExtra(id){
 
 function renderParcelas(){
   document.getElementById("lista-parcelas").innerHTML = parcelas.map(p=>`
-    <div class="card row">
-      <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} ${p.contacto?'• '+p.contacto:''}</small></div>
-      <button class="danger" onclick="eliminarParcela('${p.id}','${p.nombre}')">Eliminar</button>
+    <div class="card">
+      <div class="row">
+        <div><b>${p.nombre}</b><br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''}</small></div>
+        <button class="danger" onclick="eliminarParcela('${p.id}','${p.nombre}')">Eliminar</button>
+      </div>
+      <div style="margin-top:8px">
+        <small>WhatsApp: ${p.contacto || '(sin numero)'}</small>
+        <button class="secondary" style="margin-left:6px" onclick="editarContacto('${p.id}','${p.contacto||''}')">Editar</button>
+      </div>
+      ${p.contacto ? `<button style="margin-top:8px;width:100%" onclick="enviarWhatsapp('${p.id}')">📲 Enviar reporte por WhatsApp</button>` : ''}
     </div>`).join("");
+}
+
+async function editarContacto(id, actual){
+  const nuevo = prompt("Número de WhatsApp (con código de país, ej: 56912345678):", actual);
+  if(nuevo === null) return;
+  await sb.from("parcelas").update({ contacto: nuevo }).eq("id", id);
+  const p = parcelas.find(x=>x.id===id); if(p) p.contacto = nuevo;
+  renderParcelas();
+}
+
+function enviarWhatsapp(parcela_id){
+  const p = parcelas.find(x=>x.id===parcela_id);
+  if(!p || !p.contacto) return alert("Esta parcela no tiene número de WhatsApp guardado");
+  const numero = p.contacto.replace(/\D/g,"");
+  const link = `${location.origin}${location.pathname.replace("admin.html","reporte.html")}?code=${CODIGO}&parcela=${p.numero}`;
+  const mensaje = `Hola, te comparto el reporte de tesorería de ${condominio.nombre} (${p.nombre}). Puedes ver tu deuda histórica aquí: ${link}`;
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, "_blank");
 }
 
 async function eliminarParcela(id, nombre){
@@ -466,6 +495,44 @@ async function guardarParcela(){
   });
   if(error){ alert("Error: "+error.message); return; }
   location.reload();
+}
+
+async function exportarExcel(){
+  const [{data:parcelasAll},{data:pagosAll},{data:gastosAll},{data:extrasAll},{data:abonosAll}] = await Promise.all([
+    sb.from("parcelas").select("*").eq("condominio_id", condominio.id).order("numero"),
+    sb.from("pagos").select("*").in("parcela_id", parcelas.map(p=>p.id)),
+    sb.from("gastos").select("*").eq("condominio_id", condominio.id).order("fecha"),
+    sb.from("ingresos_extra").select("*").eq("condominio_id", condominio.id).order("fecha"),
+    sb.from("abonos_deuda").select("*").in("parcela_id", parcelas.map(p=>p.id))
+  ]);
+
+  const nombrePorId = {};
+  parcelasAll.forEach(p=>nombrePorId[p.id]=p.nombre);
+
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    parcelasAll.map(p=>({Numero:p.numero, Nombre:p.nombre, Responsable:p.responsable, RUT:p.rut, Contacto:p.contacto, "Deuda Histórica":p.deuda_historica}))
+  ), "Parcelas");
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    pagosAll.map(p=>({Parcela:nombrePorId[p.parcela_id], Año:p.anio, Mes:p.mes, Monto:p.monto, Pagado:p.pagado?"Sí":"No", "Fecha Pago":p.fecha_pago, "Trasladado a deuda":p.trasladado_a_deuda?"Sí":"No"}))
+  ), "Pagos");
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    gastosAll.map(g=>({Descripcion:g.descripcion, Categoria:g.categoria, Monto:g.monto, Fecha:g.fecha, Proveedor:g.proveedor, "N° Doc":g.numero_doc, "Pagado a":g.pagado_a, Observacion:g.observacion, Comprobante:g.archivo_url}))
+  ), "Gastos");
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    extrasAll.map(e=>({Descripcion:e.descripcion, Monto:e.monto, Fecha:e.fecha, Origen:e.origen, Comprobante:e.archivo_url}))
+  ), "Ingresos Extra");
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    abonosAll.map(a=>({Parcela:nombrePorId[a.parcela_id], Monto:a.monto, Fecha:a.fecha, Comprobante:a.archivo_url}))
+  ), "Abonos Deuda Historica");
+
+  const fecha = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Respaldo_VientoNorte_${fecha}.xlsx`);
 }
 
 init();
