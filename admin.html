@@ -290,6 +290,7 @@ async function renderPagos(){
 
   let html = "<tr><th>#</th><th>Parcela</th><th>Estado</th><th>Monto</th></tr>";
   let recaudadoRiego = 0, riegoPagadas = 0, riegoTotal = 0;
+  let nombresPagaronRiego = [];
   for(const p of parcelas){
     const pago = (pagos||[]).find(x=>x.parcela_id===p.id);
     const pagado = pago?.pagado;
@@ -303,13 +304,27 @@ async function renderPagos(){
     </tr>`;
     if(p.tiene_riego){
       riegoTotal++;
-      if(pagado){ recaudadoRiego += 10000; riegoPagadas++; }
+      if(pagado){ recaudadoRiego += 10000; riegoPagadas++; nombresPagaronRiego.push(p.nombre); }
     }
   }
   document.getElementById("tabla-pagos").innerHTML = html;
-  document.getElementById("resumen-riego").innerHTML = riegoTotal
-    ? `💧 <b>Agua de riego este mes:</b> recaudado $${recaudadoRiego.toLocaleString("es-CL")} (${riegoPagadas} de ${riegoTotal} parcelas con riego pagaron) — esto es lo que le corresponde transferir al proveedor del agua.`
-    : `Ninguna parcela tiene agua de riego marcada todavía (pestaña Parcelas).`;
+
+  if(!riegoTotal){
+    document.getElementById("resumen-riego").innerHTML = `Ninguna parcela tiene agua de riego marcada todavía (pestaña Parcelas).`;
+  } else {
+    document.getElementById("resumen-riego").innerHTML = `
+      💧 <b>Agua de riego — ${meses[mes-1]} ${anio}:</b> recaudado $${recaudadoRiego.toLocaleString("es-CL")} (${riegoPagadas} de ${riegoTotal})<br>
+      ${nombresPagaronRiego.length ? `<small><b>Registro de ingresos individuales:</b> ${nombresPagaronRiego.map(n=>n+' ($10.000)').join(", ")}</small>` : '<small>Nadie ha pagado agua este mes todavía.</small>'}
+      ${recaudadoRiego>0 ? `<br><button style="margin-top:8px;width:100%" onclick="irARegistrarPagoRiego(${recaudadoRiego},'${meses[mes-1]} ${anio}')">Registrar transferencia al proveedor por este monto</button>` : ''}
+    `;
+  }
+}
+
+function irARegistrarPagoRiego(monto, periodo){
+  document.querySelector('.tab[data-tab="gastos"]').click();
+  document.getElementById("g-desc").value = `Pago proveedor agua de riego - ${periodo}`;
+  document.getElementById("g-cat").value = "Agua de Riego";
+  document.getElementById("g-monto").value = monto;
 }
 
 
