@@ -278,9 +278,11 @@ async function renderDashboard(){
   document.getElementById("s-deuda-riego").textContent = "$"+totalDeudaRiego.toLocaleString("es-CL");
 }
 
-function montoCuota(p){
-  // Gasto comun $30.000 para todos + Agua de riego $10.000 solo si la parcela lo recibe
-  return 30000 + (p.tiene_riego ? 10000 : 0);
+function montoCuota(p, anio, mes){
+  // Gasto comun $30.000 para todos + Agua de riego $10.000 SOLO si la parcela lo tiene activo Y ya llego a su mes de inicio
+  const riegoActivo = p.tiene_riego && p.riego_desde_anio && p.riego_desde_mes &&
+    (anio > p.riego_desde_anio || (anio === p.riego_desde_anio && mes >= p.riego_desde_mes));
+  return 30000 + (riegoActivo ? 10000 : 0);
 }
 
 async function renderPagos(){
@@ -296,13 +298,14 @@ async function renderPagos(){
     const pagado = pago?.pagado;
     const trasladado = pago?.trasladado_a_deuda;
     const estadoTxt = pagado ? '✅ Pagado' : (trasladado ? '➡️ En deuda histórica' : '❌ Pendiente');
+    const activaEsteMes = montoCuota(p,anio,mes) > 30000;
     html += `<tr>
       <td>${p.numero}</td>
-      <td>${p.nombre} ${p.tiene_riego?'💧':''}</td>
+      <td>${p.nombre} ${activaEsteMes?'💧':''}</td>
       <td class="${pagado?'ok':'no'}" onclick="togglePago('${p.id}',${anio},${mes},${!pagado})">${estadoTxt}</td>
-      <td>$${montoCuota(p).toLocaleString("es-CL")}</td>
+      <td>$${montoCuota(p,anio,mes).toLocaleString("es-CL")}</td>
     </tr>`;
-    if(p.tiene_riego){
+    if(activaEsteMes){
       riegoTotal++;
       if(pagado){ recaudadoRiego += 10000; riegoPagadas++; nombresPagaronRiego.push(p.nombre); }
     }
@@ -310,7 +313,7 @@ async function renderPagos(){
   document.getElementById("tabla-pagos").innerHTML = html;
 
   if(!riegoTotal){
-    document.getElementById("resumen-riego").innerHTML = `Ninguna parcela tiene agua de riego marcada todavía (pestaña Parcelas).`;
+    document.getElementById("resumen-riego").innerHTML = `Ninguna parcela tiene agua de riego activa en ${meses[mes-1]} ${anio}.`;
   } else {
     document.getElementById("resumen-riego").innerHTML = `
       💧 <b>Agua de riego — ${meses[mes-1]} ${anio}:</b> recaudado $${recaudadoRiego.toLocaleString("es-CL")} (${riegoPagadas} de ${riegoTotal})<br>
@@ -331,7 +334,7 @@ function irARegistrarPagoRiego(monto, periodo){
 async function cerrarMes(){
   const mes = Number(document.getElementById("pagos-mes").value);
   const anio = Number(document.getElementById("pagos-anio").value);
-  if(!confirm(`¿Cerrar ${meses[mes-1]} ${anio}? Las parcelas "Pendiente" sumarán $30.000 a su deuda con el condominio. Si tienen riego, los $10.000 de agua van a una cuenta APARTE (deuda con el proveedor, no del condominio). Esto no se puede deshacer fácil.`)) return;
+  if(!confirm(`¿Cerrar ${meses[mes-1]} ${anio}? Las parcelas "Pendiente" sumarán $30.000 a su deuda con el condominio. Si tienen riego activo en ese mes, los $10.000 de agua van a una cuenta APARTE (deuda con el proveedor, no del condominio). Esto no se puede deshacer fácil.`)) return;
 
   const { data: pagos } = await sb.from("pagos").select("*").eq("anio", anio).eq("mes", mes);
   let trasladados = 0;
@@ -340,14 +343,16 @@ async function cerrarMes(){
     const yaPago = pago?.pagado;
     const yaTrasladado = pago?.trasladado_a_deuda;
     if(!yaPago && !yaTrasladado){
+      const montoTotal = montoCuota(p, anio, mes);
+      const riegoPortion = Math.max(0, montoTotal - 30000);
       const nuevaDeuda = Number(p.deuda_historica||0) + 30000; // solo gasto comun, no riego
-      const nuevaDeudaRiego = Number(p.deuda_riego||0) + (p.tiene_riego ? 10000 : 0);
+      const nuevaDeudaRiego = Number(p.deuda_riego||0) + riegoPortion;
       await sb.from("parcelas").update({ deuda_historica: nuevaDeuda, deuda_riego: nuevaDeudaRiego }).eq("id", p.id);
       p.deuda_historica = nuevaDeuda;
       p.deuda_riego = nuevaDeudaRiego;
       await sb.from("pagos").upsert({
         parcela_id: p.id, anio, mes,
-        monto: montoCuota(p), pagado: false, trasladado_a_deuda: true
+        monto: montoTotal, pagado: false, trasladado_a_deuda: true
       }, { onConflict: "parcela_id,anio,mes" });
       trasladados++;
     }
@@ -368,8 +373,10 @@ async function deshacerCierre(){
   for(const pago of (pagos||[])){
     const p = parcelas.find(x=>x.id===pago.parcela_id);
     if(!p) continue;
+    // Usamos el monto que quedo guardado en ese momento (no el estado actual de riego, que pudo cambiar despues)
+    const riegoPortionGuardado = Math.max(0, Number(pago.monto||30000) - 30000);
     const nuevaDeuda = Math.max(0, Number(p.deuda_historica||0) - 30000);
-    const nuevaDeudaRiego = Math.max(0, Number(p.deuda_riego||0) - (p.tiene_riego ? 10000 : 0));
+    const nuevaDeudaRiego = Math.max(0, Number(p.deuda_riego||0) - riegoPortionGuardado);
     await sb.from("parcelas").update({ deuda_historica: nuevaDeuda, deuda_riego: nuevaDeudaRiego }).eq("id", p.id);
     p.deuda_historica = nuevaDeuda;
     p.deuda_riego = nuevaDeudaRiego;
@@ -388,7 +395,7 @@ async function togglePago(parcela_id, anio, mes, nuevoEstado){
   if(!confirm(`¿${accion}?`)) return;
   await sb.from("pagos").upsert({
     parcela_id, anio, mes,
-    monto: montoCuota(p),
+    monto: montoCuota(p, anio, mes),
     pagado: nuevoEstado,
     fecha_pago: nuevoEstado ? new Date().toISOString().slice(0,10) : null
   }, { onConflict: "parcela_id,anio,mes" });
@@ -492,14 +499,18 @@ function renderParcelas(){
       <button style="margin-top:8px;width:100%" onclick="enviarATodos()">📲 Enviar reporte a todos (uno por uno)</button>
       <small style="display:block;margin-top:6px;color:#777">WhatsApp exige que tú apruetes cada envío — se van a ir abriendo los chats de a uno, cada 3 segundos, ya con el mensaje listo. Solo dale "Enviar" en cada uno.</small>
     </div>
-  ` + parcelas.map(p=>`
+  ` + parcelas.map(p=>{
+    const hoy = new Date();
+    const activaHoy = montoCuota(p, hoy.getFullYear(), hoy.getMonth()+1) > 30000;
+    const desdeTxto = (p.tiene_riego && p.riego_desde_mes) ? ` (desde ${meses[p.riego_desde_mes-1]} ${p.riego_desde_anio})` : '';
+    return `
     <div class="card">
       <div class="row">
-        <div><b>${p.nombre}</b> ${p.tiene_riego?'💧':''}<br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} • Cuota: $${montoCuota(p).toLocaleString("es-CL")}</small></div>
+        <div><b>${p.nombre}</b> ${activaHoy?'💧':''}<br><small>${p.responsable||'(sin responsable)'} ${p.rut?'• '+p.rut:''} • Cuota actual: $${montoCuota(p, hoy.getFullYear(), hoy.getMonth()+1).toLocaleString("es-CL")}</small></div>
         <button class="danger" onclick="eliminarParcela('${p.id}','${p.nombre}')">Eliminar</button>
       </div>
       <div style="margin-top:8px">
-        <button class="secondary" onclick="toggleRiego('${p.id}',${!p.tiene_riego})">${p.tiene_riego ? '💧 Quitar agua de riego' : '➕ Agregar agua de riego (+$10.000)'}</button>
+        <button class="secondary" onclick="toggleRiego('${p.id}',${!p.tiene_riego})">${p.tiene_riego ? `💧 Quitar agua de riego${desdeTxto}` : '➕ Agregar agua de riego (+$10.000)'}</button>
         ${Number(p.deuda_riego||0)>0 ? `<div style="margin-top:6px;color:#c48a00"><small>💧 Debe al proveedor de agua: $${Number(p.deuda_riego).toLocaleString("es-CL")}</small></div>` : ''}
       </div>
       <div style="margin-top:8px">
@@ -507,12 +518,27 @@ function renderParcelas(){
         <button class="secondary" style="margin-left:6px" onclick="editarContacto('${p.id}','${p.contacto||''}')">Editar</button>
       </div>
       ${p.contacto ? `<button style="margin-top:8px;width:100%" onclick="enviarWhatsapp('${p.id}')">📲 Enviar reporte por WhatsApp</button>` : ''}
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 async function toggleRiego(id, nuevoValor){
-  await sb.from("parcelas").update({ tiene_riego: nuevoValor }).eq("id", id);
-  const p = parcelas.find(x=>x.id===id); if(p) p.tiene_riego = nuevoValor;
+  const p = parcelas.find(x=>x.id===id);
+  if(nuevoValor){
+    const hoy = new Date();
+    const defaultVal = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    const resp = prompt("¿Desde qué mes se cobra el agua de riego a esta parcela? (formato AAAA-MM)", defaultVal);
+    if(!resp) return;
+    const [anioStr, mesStr] = resp.split("-");
+    const anioInicio = Number(anioStr), mesInicio = Number(mesStr);
+    if(!anioInicio || !mesInicio || mesInicio<1 || mesInicio>12) return alert("Formato inválido, usa AAAA-MM (ej: 2026-09)");
+    await sb.from("parcelas").update({ tiene_riego: true, riego_desde_anio: anioInicio, riego_desde_mes: mesInicio }).eq("id", id);
+    if(p){ p.tiene_riego = true; p.riego_desde_anio = anioInicio; p.riego_desde_mes = mesInicio; }
+  } else {
+    if(!confirm("¿Quitar el cobro de agua de riego a esta parcela desde ahora en adelante? Los meses ya pasados no se modifican.")) return;
+    await sb.from("parcelas").update({ tiene_riego: false }).eq("id", id);
+    if(p) p.tiene_riego = false;
+  }
   renderParcelas();
   await renderPagos();
 }

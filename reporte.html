@@ -109,10 +109,15 @@ async function init(){
   const { data: c } = await sb.from("condominio").select("*").eq("codigo", codigo).single();
   if(!c){ document.getElementById("titulo").textContent = "Condominio no encontrado"; return; }
 
-  document.getElementById("titulo").innerHTML = `<h1>${c.nombre}</h1>Año ${c.anio} • Cuota mensual $${Number(c.cuota_mensual).toLocaleString("es-CL")}`;
+  document.getElementById("titulo").innerHTML = `<h1>${c.nombre}</h1>Año ${c.anio} • Gasto Común $30.000 + Agua de Riego $10.000 (solo parcelas con riego)`;
 
-  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre,deuda_historica").eq("condominio_id", c.id).order("numero");
+  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre,deuda_historica,tiene_riego,riego_desde_anio,riego_desde_mes").eq("condominio_id", c.id).order("numero");
   document.getElementById("s-parcelas").textContent = parcelas.length;
+  const montoCuota = (p, anio, mes)=>{
+    const riegoActivo = p.tiene_riego && p.riego_desde_anio && p.riego_desde_mes &&
+      (anio > p.riego_desde_anio || (anio === p.riego_desde_anio && mes >= p.riego_desde_mes));
+    return 30000 + (riegoActivo ? 10000 : 0);
+  };
 
   const { data: abonos } = await sb.from("abonos_deuda").select("*").in("parcela_id", parcelas.map(p=>p.id));
   const totalDeudaInicial = parcelas.reduce((a,p)=>a+Number(p.deuda_historica||0),0);
@@ -160,8 +165,11 @@ async function init(){
   document.getElementById("bar-mes").style.width = pctMes+"%";
   document.getElementById("txt-mes").textContent = `${pctMes}% — ${pagosMes.length} de ${parcelas.length} parcelas al día en ${meses[mesActual-1]}`;
 
-  // Recaudación anual (meses transcurridos)
-  const esperadoAnual = parcelas.length * Number(c.cuota_mensual) * mesActual;
+  // Recaudación anual (meses transcurridos, sumando cada mes lo que realmente correspondia por parcela)
+  let esperadoAnual = 0;
+  for(let m=1; m<=mesActual; m++){
+    esperadoAnual += parcelas.reduce((a,p)=>a+montoCuota(p, c.anio, m),0);
+  }
   const pctAnio = esperadoAnual ? Math.round(totalPagado/esperadoAnual*100) : 0;
   document.getElementById("bar-anio").style.width = Math.min(pctAnio,100)+"%";
   document.getElementById("txt-anio").textContent = `${pctAnio}% — $${totalPagado.toLocaleString("es-CL")} de $${esperadoAnual.toLocaleString("es-CL")} esperado hasta ${meses[mesActual-1]}`;
