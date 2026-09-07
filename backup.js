@@ -5,7 +5,7 @@ const SUPABASE_URL = "https://lhmyoayjwltklxvdxdzn.supabase.co";
 const SUPABASE_KEY = "sb_publishable_duNAiIbyGBOECNnK67399g_JxC_78MF";
 const fs = require("fs");
 
-const tablas = ["condominio", "parcelas", "pagos", "gastos", "ingresos_extra", "abonos_deuda"];
+const tablas = ["condominio", "parcelas", "pagos", "pagos_riego", "gastos", "ingresos_extra", "abonos_deuda"];
 
 function aCSV(filas) {
   if (!filas.length) return "";

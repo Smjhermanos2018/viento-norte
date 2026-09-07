@@ -111,13 +111,8 @@ async function init(){
 
   document.getElementById("titulo").innerHTML = `<h1>${c.nombre}</h1>Año ${c.anio} • Gasto Común $30.000 + Agua de Riego $10.000 (solo parcelas con riego)`;
 
-  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre,deuda_historica,tiene_riego,riego_desde_anio,riego_desde_mes").eq("condominio_id", c.id).order("numero");
+  const { data: parcelas } = await sb.from("parcelas").select("id,numero,nombre,deuda_historica,tiene_riego").eq("condominio_id", c.id).order("numero");
   document.getElementById("s-parcelas").textContent = parcelas.length;
-  const montoCuota = (p, anio, mes)=>{
-    const riegoActivo = p.tiene_riego && p.riego_desde_anio && p.riego_desde_mes &&
-      (anio > p.riego_desde_anio || (anio === p.riego_desde_anio && mes >= p.riego_desde_mes));
-    return 30000 + (riegoActivo ? 10000 : 0);
-  };
 
   const { data: abonos } = await sb.from("abonos_deuda").select("*").in("parcela_id", parcelas.map(p=>p.id));
   const totalDeudaInicial = parcelas.reduce((a,p)=>a+Number(p.deuda_historica||0),0);
@@ -145,19 +140,21 @@ async function init(){
   }
 
   const { data: pagos } = await sb.from("pagos").select("*").in("parcela_id", parcelas.map(p=>p.id)).eq("anio", c.anio);
+  const { data: pagosRiego } = await sb.from("pagos_riego").select("*").in("parcela_id", parcelas.map(p=>p.id)).eq("anio", c.anio);
   const { data: gastos } = await sb.from("gastos").select("*").eq("condominio_id", c.id).order("fecha",{ascending:false});
   const { data: extras } = await sb.from("ingresos_extra").select("*").eq("condominio_id", c.id).order("fecha",{ascending:false});
 
   const totalGastos = (gastos||[]).reduce((a,b)=>a+Number(b.monto),0);
   const totalExtra = (extras||[]).reduce((a,b)=>a+Number(b.monto),0);
   const pagosOk = (pagos||[]).filter(p=>p.pagado);
-  const totalPagado = pagosOk.reduce((a,b)=>a+Number(b.monto),0);
+  const pagosRiegoOk = (pagosRiego||[]).filter(p=>p.pagado);
+  const totalPagado = pagosOk.reduce((a,b)=>a+Number(b.monto),0) + pagosRiegoOk.reduce((a,b)=>a+Number(b.monto),0);
   const balance = Number(c.saldo_inicial||0) + totalPagado + totalExtra - totalGastos;
 
   document.getElementById("s-ingresos").textContent = "$"+totalPagado.toLocaleString("es-CL");
   document.getElementById("s-gastos").textContent = "$"+totalGastos.toLocaleString("es-CL");
 
-  // Cumplimiento mes actual
+  // Cumplimiento mes actual (solo gasto comun, que aplica a todas las parcelas)
   const hoy = new Date();
   const mesActual = hoy.getMonth()+1;
   const pagosMes = (pagos||[]).filter(p=>p.mes===mesActual && p.pagado);
@@ -165,11 +162,9 @@ async function init(){
   document.getElementById("bar-mes").style.width = pctMes+"%";
   document.getElementById("txt-mes").textContent = `${pctMes}% — ${pagosMes.length} de ${parcelas.length} parcelas al día en ${meses[mesActual-1]}`;
 
-  // Recaudación anual (meses transcurridos, sumando cada mes lo que realmente correspondia por parcela)
-  let esperadoAnual = 0;
-  for(let m=1; m<=mesActual; m++){
-    esperadoAnual += parcelas.reduce((a,p)=>a+montoCuota(p, c.anio, m),0);
-  }
+  // Recaudación anual (meses transcurridos): gasto comun de todas + agua de las que tienen riego
+  const parcelasConRiego = parcelas.filter(p=>p.tiene_riego).length;
+  let esperadoAnual = (parcelas.length*30000 + parcelasConRiego*10000) * mesActual;
   const pctAnio = esperadoAnual ? Math.round(totalPagado/esperadoAnual*100) : 0;
   document.getElementById("bar-anio").style.width = Math.min(pctAnio,100)+"%";
   document.getElementById("txt-anio").textContent = `${pctAnio}% — $${totalPagado.toLocaleString("es-CL")} de $${esperadoAnual.toLocaleString("es-CL")} esperado hasta ${meses[mesActual-1]}`;
