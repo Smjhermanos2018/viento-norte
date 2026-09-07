@@ -174,13 +174,14 @@ async function init(){
   const mesesVisibles = meses.slice(mesDesde-1);
   let html = "<tr><th>Parcela</th>"+mesesVisibles.map(m=>`<th>${m}</th>`).join("")+"</tr>";
   for(const p of parcelas){
-    html += `<tr><td>${p.nombre}</td>`;
+    html += `<tr><td>${p.nombre} ${p.tiene_riego?'💧':''}</td>`;
     for(let m=mesDesde; m<=12; m++){
       const pago = (pagos||[]).find(x=>x.parcela_id===p.id && x.mes===m);
       html += `<td class="${pago?.pagado?'ok':'no'}">${pago?.pagado?'✅':'❌'}</td>`;
     }
     html += "</tr>";
   }
+  html += `<tr><td colspan="${mesesVisibles.length+1}" style="text-align:left;font-size:12px;color:#777;padding-top:8px">💧 = parcela con cargo de agua de riego</td></tr>`;
   document.getElementById("tabla-anual").innerHTML = html;
 
   // Gastos
